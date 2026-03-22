@@ -101,6 +101,7 @@ function App() {
   var st7 = useState(false); var showImport = st7[0]; var setShowImport = st7[1];
   var tsRef = useRef(Date.now());
   var pollRef = useRef(null);
+  var lastPushRid = useRef("");
 
   var activeItems = items.filter(function(w) { return !w.graduated; });
   var graduatedItems = items.filter(function(w) { return w.graduated; });
@@ -133,6 +134,7 @@ function App() {
     if (!settings.gasUrl) return;
     var data = { items: items, settings: settings, ts: Date.now() };
     var rid = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    lastPushRid.current = rid;
     setSyncStatus("push");
     fetch(settings.gasUrl, {
       method: "POST",
@@ -142,15 +144,13 @@ function App() {
     }).then(function() {
       setTimeout(function() {
         fetch(settings.gasUrl + "?action=read&ts=" + Date.now()).then(function(r) { return r.json(); }).then(function(cloud) {
-          if (cloud && cloud.requestId === rid) {
-            tsRef.current = cloud.ts || Date.now();
-            setSyncStatus("ok");
-            setTimeout(function() { setSyncStatus(null); }, 2000);
-          } else {
-            setSyncStatus("ok");
-            setTimeout(function() { setSyncStatus(null); }, 2000);
-          }
-        }).catch(function() { setSyncStatus(null); });
+          tsRef.current = cloud.ts || Date.now();
+          setSyncStatus("ok");
+          setTimeout(function() { setSyncStatus(null); }, 2000);
+        }).catch(function() {
+          tsRef.current = Date.now();
+          setSyncStatus(null);
+        });
       }, 2000);
     }).catch(function() { setSyncStatus("error"); setTimeout(function() { setSyncStatus(null); }, 3000); });
   }, [items, settings]);
@@ -159,12 +159,17 @@ function App() {
     if (!settings.gasUrl) return;
     fetch(settings.gasUrl + "?action=read&ts=" + Date.now()).then(function(r) { return r.json(); }).then(function(cloud) {
       if (cloud && cloud.ts && cloud.ts > tsRef.current) {
-        if (confirm("\u5225\u306e\u7aef\u672b\u3067\u66f4\u65b0\u304c\u3042\u308a\u307e\u3059\u3002\u53d6\u308a\u8fbc\u307f\u307e\u3059\u304b\uff1f")) {
+        if (cloud.requestId && cloud.requestId === lastPushRid.current) {
+          tsRef.current = cloud.ts;
+          return;
+        }
+        var doImport = confirm("\u5225\u306e\u7aef\u672b\u3067\u66f4\u65b0\u304c\u3042\u308a\u307e\u3059\u3002\u53d6\u308a\u8fbc\u307f\u307e\u3059\u304b\uff1f");
+        tsRef.current = cloud.ts;
+        if (doImport) {
           var parsed = typeof cloud.data === "string" ? JSON.parse(cloud.data) : cloud.data;
           if (parsed && parsed.items) {
             setItems(parsed.items);
             if (parsed.settings) setSettings(function(prev) { return Object.assign({}, prev, parsed.settings, { gasUrl: prev.gasUrl }); });
-            tsRef.current = cloud.ts;
           }
         }
       }
