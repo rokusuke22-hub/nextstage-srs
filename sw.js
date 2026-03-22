@@ -1,5 +1,5 @@
-var CACHE_NAME = "nextstage-srs-v1";
-var ASSETS = [
+const CACHE_NAME = "nextstage-srs-v1";
+const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
@@ -28,8 +28,8 @@ self.addEventListener("activate", function(e) {
 });
 
 self.addEventListener("fetch", function(e) {
-  if (e.request.url.includes("script.google.com")) {
-    e.respondWith(fetch(e.request));
+  var url = e.request.url;
+  if (url.includes("script.google.com") || url.includes("googleusercontent.com")) {
     return;
   }
   e.respondWith(
