@@ -1,51 +1,42 @@
 // ========================================
-// キャッシュ強制クリア用 sw.js（一時利用）
-// 作成日時: 2026-03-25
-// 目的: 古いService Workerキャッシュを完全に破棄し、
-//       新しいファイルを強制的に読み込ませる
-// ========================================
-// ★★★ このファイルは一時的なものです ★★★
-// 全端末でキャッシュクリアが確認できたら、
-// 本番用 sw.js に差し替えてください。
+// ネクステSRS - Service Worker v1.0
+// 作成日時: 2026-03-25T23:00:00+09:00
+// ★No.15: キャッシュ名をシス単と分離
 // ========================================
 
-// install: 即座にアクティブ化（待機なし）
+var CACHE_NAME = "nextstage-srs-v1";
+
 self.addEventListener("install", function(e) {
-  // skipWaiting で古い SW を即座に置き換える
   self.skipWaiting();
 });
 
-// activate: 全キャッシュを削除
 self.addEventListener("activate", function(e) {
   e.waitUntil(
     caches.keys().then(function(names) {
-      console.log("[SW NUKE] 削除対象キャッシュ:", names);
       return Promise.all(
-        names.map(function(name) {
-          console.log("[SW NUKE] 削除:", name);
+        names.filter(function(name) {
+          // ネクステSRSの古いキャッシュのみ削除（シス単のキャッシュは触らない）
+          return name.startsWith("nextstage-srs-") && name !== CACHE_NAME;
+        }).map(function(name) {
           return caches.delete(name);
         })
       );
     }).then(function() {
-      console.log("[SW NUKE] 全キャッシュ削除完了");
-      // 全クライアント（タブ）にコントロールを取得
       return self.clients.claim();
     })
   );
 });
 
-// fetch: キャッシュを一切使わず、常にネットワークから取得
 self.addEventListener("fetch", function(e) {
-  // GAS通信はそのまま通す
   var url = e.request.url;
-  if (url.includes("script.google.com") || url.includes("googleusercontent.com")) {
-    return;
-  }
-  // 常にネットワークからフェッチ（キャッシュ不使用）
+  // http/https以外のスキームはスキップ（chrome-extension://等のTypeError防止）
+  if (!url.startsWith("http")) return;
+  // GAS通信はそのまま通す
+  if (url.includes("script.google.com") || url.includes("googleusercontent.com")) return;
+  // 常にネットワークからフェッチ
   e.respondWith(
     fetch(e.request).catch(function() {
-      // オフライン時のみフォールバック
-      return new Response("オフラインです。ネットワーク接続を確認してください。", {
+      return new Response("\u30aa\u30d5\u30e9\u30a4\u30f3\u3067\u3059\u3002\u30cd\u30c3\u30c8\u30ef\u30fc\u30af\u63a5\u7d9a\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002", {
         headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
     })
