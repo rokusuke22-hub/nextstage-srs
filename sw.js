@@ -1,4 +1,4 @@
-const CACHE_NAME = "nextstage-srs-v1";
+const CACHE_NAME = "systan-srs-v4";
 const ASSETS = [
   "./",
   "./index.html",
