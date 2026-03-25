@@ -79,6 +79,27 @@ function pushCloud(url, state) {
   });
 }
 
+// ========================================
+// pushCloudLite: verify GETなしの軽量版（ページ離脱時用）
+// POST送信のみ行い、結果は確認しない（fire-and-forget）。
+// ========================================
+function pushCloudLite(url, stateData) {
+  if (!url) return;
+  var ts = Date.now();
+  var rid = "lite_" + ts + "_" + Math.random().toString(36).substr(2, 9);
+  console.log("[pushCloudLite] fire-and-forget POST. id=" + rid);
+  try { localStorage.setItem(STORAGE_KEY + "-ts", String(ts)); } catch(e) {}
+  var payload = JSON.stringify({ timestamp: ts, data: stateData, requestId: rid });
+  try {
+    var useKeepalive = payload.length < 63000;
+    fetch(url, {
+      method: "POST", mode: "no-cors", keepalive: useKeepalive,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: payload
+    }).catch(function(err) { console.error("[pushCloudLite] " + err.message); });
+  } catch(e) { console.error("[pushCloudLite] " + e.message); }
+}
+
 var btnStyles = {
   wrong:{bg:"#FEE2E2",color:"#991B1B",border:"#FECACA"},
   unsure:{bg:"#FEF3C7",color:"#92400E",border:"#FDE68A"},
@@ -134,6 +155,50 @@ function App(){
   useEffect(function(){var u=getGasUrl(settings);if(!u)return;if(!initialSyncDone.current)return;if(skipNextPush.current){skipNextPush.current=false;return;}if(syncPushTimer.current)clearTimeout(syncPushTimer.current);syncPushTimer.current=setTimeout(function(){var lt=getLocalTs();setSyncStatus("syncing");fetchCloud(u).then(function(cl){if(cl.timestamp>lt){setSyncStatus("");setPendingCloudData({data:cl.data,ts:cl.timestamp});setShowSyncDialog(true);return;}return pushCloud(u,state).then(function(){setSyncStatus("synced");setTimeout(function(){setSyncStatus("");},2000);});}).catch(function(){setSyncStatus("offline");});},3000);return function(){if(syncPushTimer.current)clearTimeout(syncPushTimer.current);};},[state,getGasUrl(settings)]);
   useEffect(function(){var u=getGasUrl(settings);if(!u){initialSyncDone.current=true;return;}setSyncStatus("syncing");fetchCloud(u).then(function(cl){if(!cl.data){initialSyncDone.current=true;setSyncStatus("");return;}if(cl.timestamp>getLocalTs()){setPendingCloudData({data:cl.data,ts:cl.timestamp});setShowSyncDialog(true);}initialSyncDone.current=true;setSyncStatus("");}).catch(function(){initialSyncDone.current=true;setSyncStatus("offline");});},[]);
   useEffect(function(){var u=getGasUrl(settings);if(!u)return;var pid=setInterval(function(){if(!initialSyncDone.current||showSyncDialog)return;var lt=getLocalTs();fetchCloud(u).then(function(cl){if(cl.data&&cl.timestamp>lt){setPendingCloudData({data:cl.data,ts:cl.timestamp});setShowSyncDialog(true);}}).catch(function(){});},30000);return function(){clearInterval(pid);};},[getGasUrl(settings),showSyncDialog]);
+
+  // ========================================
+  // 復習完了時の即時クラウド同期
+  // 3秒デバウンスを待たず、復習セッション終了と同時にpushCloudを実行。
+  // ========================================
+  useEffect(function() {
+    if (!reviewDone) return;
+    var u = getGasUrl(settings);
+    if (!u || !initialSyncDone.current) return;
+    console.log("[REVIEW DONE SYNC] 復習完了検知。即時pushCloud実行...");
+    setSyncStatus("syncing");
+    pushCloud(u, state).then(function() {
+      console.log("[REVIEW DONE SYNC] 同期成功");
+      setSyncStatus("synced");
+      setTimeout(function() { setSyncStatus(""); }, 2000);
+    }).catch(function(err) {
+      console.error("[REVIEW DONE SYNC] 同期失敗: " + err.message);
+      setSyncStatus("offline");
+    });
+  }, [reviewDone]);
+
+  // ========================================
+  // ページ離脱時の緊急同期（visibilitychange + beforeunload）
+  // ========================================
+  useEffect(function() {
+    var u = getGasUrl(settings);
+    if (!u || !initialSyncDone.current) return;
+    function onHidden() {
+      if (document.visibilityState === "hidden") {
+        console.log("[VISIBILITY] hidden検知。pushCloudLite実行...");
+        pushCloudLite(u, { words: state.words, settings: state.settings });
+      }
+    }
+    function onUnload() {
+      console.log("[BEFOREUNLOAD] ページ離脱検知。pushCloudLite実行...");
+      pushCloudLite(u, { words: state.words, settings: state.settings });
+    }
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("beforeunload", onUnload);
+    return function() {
+      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+  }, [state, getGasUrl(settings)]);
 
   var getTodayReviews=useCallback(function(){var t=today();var due=Object.values(words).filter(function(w){return!w.graduated&&w.nextReviewDate<=t;}).sort(function(a,b){var oa=daysBetween(a.nextReviewDate,t),ob=daysBetween(b.nextReviewDate,t);if(ob!==oa)return ob-oa;return String(a.id).localeCompare(String(b.id));});return due.slice(0,settings.dailyLimit);},[words,settings.dailyLimit]);
   var todayReviews=getTodayReviews();
